@@ -26,14 +26,6 @@ impl Map {
         format!("{}:{:02}", mins, secs)
     }
 
-    pub fn tags_str(&self) -> String {
-        if self.tags.trim().is_empty() {
-            "—".to_string()
-        } else {
-            self.tags.clone()
-        }
-    }
-
     pub fn url(&self) -> String {
         format!("https://www.rhythia.com/maps/{}", self.id)
     }
