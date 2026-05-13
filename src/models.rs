@@ -15,11 +15,10 @@ pub struct Map {
 }
 
 impl Map {
-    /// Max RP at 100% accuracy: round(star_rating² × 2.5)
-    /// Formula from cunev/rhythia-web-utils: calculatePerformancePoints(sr, 1.0)
+    /// Max RP at 100% accuracy: round(star_rating² × 5)
     pub fn max_rp(&self) -> u64 {
         let sr = self.star_rating;
-        ((sr * 50.0).powi(2) / 1000.0).round() as u64
+        (sr * sr * 5.0).round() as u64
     }
 
     pub fn duration_str(&self) -> String {
