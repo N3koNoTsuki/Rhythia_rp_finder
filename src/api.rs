@@ -1,11 +1,12 @@
 use anyhow::{Context, Result};
 use reqwest::blocking::Client;
+use serde_json::json;
 use std::time::Duration;
 
 use crate::models::{ApiPage, Map};
 
-const BASE_URL: &str = "https://www.rhythia.com";
-const API_MAPS: &str = "/api/maps";
+const BASE_URL: &str = "https://production.rhythia.com";
+const API_BEATMAPS: &str = "/api/getBeatmaps";
 const PAGE_SIZE: u64 = 50;
 
 pub struct RhythiaClient {
@@ -17,28 +18,27 @@ impl RhythiaClient {
         let client = Client::builder()
             .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .timeout(Duration::from_secs(30))
-            .danger_accept_invalid_certs(false)
             .build()
             .context("Failed to build HTTP client")?;
         Ok(Self { client })
     }
 
     fn fetch_page(&self, page: u64) -> Result<ApiPage> {
-        let url = format!("{}{}", BASE_URL, API_MAPS);
+        let url = format!("{}{}", BASE_URL, API_BEATMAPS);
+        let body = json!({
+            "session": "",
+            "page": page,
+            "status": "RANKED"
+        });
         let mut attempt = 0u32;
 
         loop {
             let resp = self
                 .client
-                .get(&url)
+                .post(&url)
+                .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
-                .header("Referer", format!("{}/maps", BASE_URL))
-                .query(&[
-                    ("page", page.to_string()),
-                    ("limit", PAGE_SIZE.to_string()),
-                    ("ranked", "true".to_string()),
-                    ("sort", "plays".to_string()),
-                ])
+                .json(&body)
                 .send();
 
             match resp {
@@ -73,19 +73,28 @@ impl RhythiaClient {
         F: Fn(u64, u64),
     {
         let first = self.fetch_page(1)?;
-        let total = first.meta.total;
+        let total = first.total;
         let total_pages = (total + PAGE_SIZE - 1) / PAGE_SIZE;
 
-        let mut maps: Vec<Map> = first.data.into_iter().map(Into::into).collect();
+        let mut maps: Vec<Map> = first
+            .beatmaps
+            .unwrap_or_default()
+            .into_iter()
+            .map(Into::into)
+            .collect();
         on_progress(maps.len() as u64, total);
 
         for p in 2..=total_pages {
             let page = self.fetch_page(p)?;
-            maps.extend(page.data.into_iter().map(Into::into));
+            maps.extend(
+                page.beatmaps
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(Into::into),
+            );
             on_progress(maps.len() as u64, total);
-            // Polite pause to avoid hammering the server
             if p < total_pages {
-                std::thread::sleep(Duration::from_millis(100));
+                std::thread::sleep(Duration::from_millis(150));
             }
         }
 

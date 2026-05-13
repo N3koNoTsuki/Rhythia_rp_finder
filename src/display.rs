@@ -42,22 +42,16 @@ impl Colors {
 }
 
 fn print_map(rank: usize, map: &Map, c: &Colors) {
-    let bpm_str = map
-        .bpm
-        .map(|b| format!("{:.0}", b))
-        .unwrap_or("?".to_string());
-
     println!(
-        "{bold}[#{rank}]{reset} {cyan}{title}{reset} — {artist}",
+        "{bold}[#{rank}]{reset} {cyan}{title}{reset}",
         bold = c.bold,
         reset = c.reset,
         cyan = c.cyan,
         rank = rank,
         title = map.title,
-        artist = map.artist,
     );
     println!(
-        "     {dim}Mapper:{reset} {mapper}  |  {yellow}Max RP: {rp}{reset}  |  ⭐ {stars:.1}  |  Plays: {plays}",
+        "     {dim}Mapper:{reset} {mapper}  |  {yellow}Max RP: {rp}{reset}  |  ⭐ {stars:.2}  |  Plays: {plays}",
         dim = c.dim,
         reset = c.reset,
         yellow = c.yellow,
@@ -67,12 +61,11 @@ fn print_map(rank: usize, map: &Map, c: &Colors) {
         plays = format_number(map.play_count),
     );
     println!(
-        "     {dim}Tags:{reset} {tags}  |  Durée: {dur}  |  BPM: {bpm}",
+        "     {dim}Tags:{reset} {tags}  |  Durée: {dur}",
         dim = c.dim,
         reset = c.reset,
         tags = map.tags_str(),
         dur = map.duration_str(),
-        bpm = bpm_str,
     );
     println!(
         "     {green}🔗 {url}{reset}",

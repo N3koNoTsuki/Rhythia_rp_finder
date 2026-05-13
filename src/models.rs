@@ -4,14 +4,12 @@ use serde::{Deserialize, Serialize};
 pub struct Map {
     pub id: u64,
     pub title: String,
-    pub artist: String,
     pub creator: String,
     pub star_rating: f64,
     pub play_count: u64,
-    pub tags: Vec<String>,
-    pub duration: u64,
-    pub bpm: Option<f64>,
-    pub ranked: bool,
+    pub tags: String,
+    pub duration_ms: u64,
+    pub created_at: Option<String>,
 }
 
 impl Map {
@@ -22,16 +20,17 @@ impl Map {
     }
 
     pub fn duration_str(&self) -> String {
-        let mins = self.duration / 60;
-        let secs = self.duration % 60;
+        let total_secs = self.duration_ms / 1000;
+        let mins = total_secs / 60;
+        let secs = total_secs % 60;
         format!("{}:{:02}", mins, secs)
     }
 
     pub fn tags_str(&self) -> String {
-        if self.tags.is_empty() {
+        if self.tags.trim().is_empty() {
             "—".to_string()
         } else {
-            self.tags.join(", ")
+            self.tags.clone()
         }
     }
 
@@ -42,58 +41,41 @@ impl Map {
 
 #[derive(Debug, Deserialize)]
 pub struct ApiPage {
-    pub data: Vec<ApiMap>,
-    pub meta: ApiMeta,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ApiMeta {
     pub total: u64,
     #[allow(dead_code)]
-    pub page: u64,
+    #[serde(alias = "viewPerPage")]
+    pub view_per_page: u64,
     #[allow(dead_code)]
-    pub per_page: u64,
+    #[serde(alias = "currentPage")]
+    pub current_page: u64,
+    pub beatmaps: Option<Vec<ApiMap>>,
 }
 
-/// Raw API map shape — may differ from actual API; adapt field names here.
 #[derive(Debug, Deserialize)]
 pub struct ApiMap {
     pub id: u64,
-    #[serde(alias = "name")]
-    pub title: String,
-    pub artist: String,
-    #[serde(alias = "mapper")]
-    pub creator: String,
-    #[serde(alias = "starRating", alias = "star_rating")]
-    pub star_rating: f64,
-    #[serde(alias = "playCount", alias = "play_count", default)]
-    pub play_count: u64,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    #[serde(alias = "length", default)]
-    pub duration: u64,
-    pub bpm: Option<f64>,
-    #[serde(default = "default_true")]
-    pub ranked: bool,
-}
-
-fn default_true() -> bool {
-    true
+    pub title: Option<String>,
+    #[serde(alias = "ownerUsername")]
+    pub owner_username: Option<String>,
+    #[serde(alias = "starRating")]
+    pub star_rating: Option<f64>,
+    pub playcount: Option<u64>,
+    pub tags: Option<String>,
+    pub length: Option<u64>,
+    pub created_at: Option<String>,
 }
 
 impl From<ApiMap> for Map {
     fn from(a: ApiMap) -> Self {
         Map {
             id: a.id,
-            title: a.title,
-            artist: a.artist,
-            creator: a.creator,
-            star_rating: a.star_rating,
-            play_count: a.play_count,
-            tags: a.tags,
-            duration: a.duration,
-            bpm: a.bpm,
-            ranked: a.ranked,
+            title: a.title.unwrap_or_default(),
+            creator: a.owner_username.unwrap_or_default(),
+            star_rating: a.star_rating.unwrap_or(0.0),
+            play_count: a.playcount.unwrap_or(0),
+            tags: a.tags.unwrap_or_default(),
+            duration_ms: a.length.unwrap_or(0),
+            created_at: a.created_at,
         }
     }
 }
