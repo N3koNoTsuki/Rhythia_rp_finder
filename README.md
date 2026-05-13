@@ -1,87 +1,81 @@
 # rhythia-rp-finder
 
-CLI Rust pour lister les maps **Rhythia** dont le Max RP se trouve dans une fourchette définie.
+Interface TUI pour trouver les maps **Rhythia** dont le Max RP se trouve dans une fourchette donnée. Les maps ranked sont chargées depuis le site, puis tu filtres en temps réel sans relancer le programme.
 
-## Prérequis
+## Installation rapide (binaire précompilé)
 
-- Rust stable (≥ 1.75) — [rustup.rs](https://rustup.rs)
-
-## Installation
+Télécharge le binaire depuis la [page Releases](../../releases/latest), rends-le exécutable et lance-le :
 
 ```bash
-git clone <repo>
-cd rhythia-rp-finder
+chmod +x rhythia-rp-finder
+./rhythia-rp-finder
+```
+
+## Compiler depuis les sources
+
+Prérequis : Rust stable ≥ 1.75 — [rustup.rs](https://rustup.rs)
+
+```bash
+git clone https://github.com/N3koNoTsuki/Rhythia_rp_finder
+cd Rhythia_rp_finder
 cargo build --release
-# Le binaire est dans ./target/release/rhythia-rp-finder
+./target/release/rhythia-rp-finder
 ```
 
-## Usage
+## Utilisation
 
-```bash
-rhythia-rp-finder --low 175 --high 225
-rhythia-rp-finder --low 100 --high 150 --sort date
-```
-
-### Options
-
-| Flag | Description | Défaut |
-|------|-------------|--------|
-| `--low <N>` | Borne basse du Max RP (inclusive) | obligatoire |
-| `--high <N>` | Borne haute du Max RP (inclusive) | obligatoire |
-| `--sort <plays\|date>` | Critère de tri | `plays` |
-
-### Navigation interactive
-
-Après affichage d'une page :
+Au lancement, le programme charge toutes les maps ranked (barre de progression). Une fois chargé, l'interface interactive s'affiche :
 
 ```
-[n]ext  [p]rev  [q]uit
+┌─ Min RP ──────────┐┌─ Max RP ──────────┐┌─ Tri ─────────────┐
+│ 150▌               ││ 300               ││ ◀ Plays ▶         │
+└───────────────────┘└───────────────────┘└───────────────────┘
+ 87 maps trouvées  (sur 475 chargées)
+──────────────────────────────────────────────────────────────
+▶ [#1] Jack Black - Steve's Lava Chicken
+    Mapper: chidodou  │  RP: 124  │  ⭐ 4.98  │  Plays: 8 645  │  0:30
+    https://www.rhythia.com/maps/9891
+
+  [#2] Hiiragi Magnetite - Tetoris (ft. Kasane Teto)
+    Mapper: worstghostplayer  │  RP: 189  │  ⭐ 6.15  │  Plays: 6 065  │  2:20
+    https://www.rhythia.com/maps/8293
 ```
 
-### Exemple de sortie
+### Raccourcis clavier
+
+| Touche | Action |
+|--------|--------|
+| **Tab** / **Shift+Tab** | Changer de champ actif |
+| **0–9** | Saisir une valeur dans Min RP ou Max RP |
+| **Backspace** | Effacer le dernier chiffre |
+| **←** / **→** ou **Enter** | Changer le tri (Plays ↔ Date) — quand Tri est actif |
+| **↑** / **↓** ou **k** / **j** | Naviguer dans la liste de résultats |
+| **Page Up** / **Page Down** | Naviguer par blocs de 10 |
+| **q** ou **Esc** | Quitter |
+
+### Champs de filtre
+
+- **Min RP** — borne basse inclusive (vide = 0)
+- **Max RP** — borne haute inclusive (vide = illimité)
+- **Tri** — `Plays` (plus joué en premier) ou `Date` (plus récent en premier)
+
+Le champ actif est surligné en jaune. Les résultats se mettent à jour à chaque frappe.
+
+## Formule Max RP
 
 ```
-Page 1/4 — 87 maps trouvées (RP 175-225)
-
-[#1] Song Title — Artist
-     Mapper: NomDuMapper  |  Max RP: 213  |  ⭐ 9.2  |  Plays: 12 453
-     Tags: jump, stream   |  Durée: 2:34  |  BPM: 220
-     🔗 https://www.rhythia.com/maps/1234
+max_rp = round(star_rating² × 5)
 ```
+
+C'est le RP obtenu à 100 % de précision.
 
 ## Architecture
 
 ```
 src/
-├── main.rs      — parsing args (clap), orchestration
-├── api.rs       — fetch + désérialisation JSON (reqwest blocking)
-├── cache.rs     — stockage en mémoire, filtrage, tri
-├── display.rs   — formatage terminal, couleurs ANSI, pagination
-└── models.rs    — structs Map, ApiPage, ApiMeta, ApiMap
+├── main.rs    — TUI (ratatui), état, événements, rendu
+├── api.rs     — fetch paginé via POST /api/getBeatmaps (reqwest blocking)
+└── models.rs  — structs Map, ApiPage, ApiMap
 ```
 
-Au démarrage, l'outil charge **toutes** les maps ranked en mémoire (Vec\<Map\>), puis filtre/trie localement. Le cache est en mémoire uniquement — aucun fichier n'est écrit sur le disque.
-
-## Formule Max RP
-
-Dérivée du dépôt [cunev/rhythia-web-utils](https://github.com/cunev/rhythia-web-utils) :
-
-```
-max_rp = round((star_rating × 50)² / 1000)
-       = round(star_rating² × 2.5)
-```
-
-C'est le RP obtenu à 100 % de précision.
-
-## Note sur l'API
-
-Rhythia n'a pas d'API publique documentée. Ce projet suppose un endpoint `GET /api/maps?page=N&limit=50&ranked=true`. Si la structure JSON diffère, adapter les alias `serde` dans `src/models.rs` (champs `ApiMap`).
-
-L'outil respecte les codes 429 (rate limit) avec un backoff exponentiel (500 ms × 2^n, jusqu'à 4 tentatives).
-
-## Variables d'environnement
-
-| Variable | Effet |
-|----------|-------|
-| `NO_COLOR` | Désactive les couleurs ANSI |
-| `TERM=dumb` | Désactive les couleurs ANSI |
+Toutes les maps ranked sont chargées en mémoire au démarrage. Le filtrage et le tri sont faits localement — aucune requête supplémentaire n'est envoyée pendant la navigation.
