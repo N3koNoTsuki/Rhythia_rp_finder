@@ -541,8 +541,9 @@ fn main() -> Result<()> {
                 return;
             }
         };
-        match client.fetch_all(|f, t| {
-            let _ = tx.send(Msg::Progress(f, t));
+        let tx_progress = tx.clone();
+        match client.fetch_all(move |f, t| {
+            let _ = tx_progress.send(Msg::Progress(f, t));
         }) {
             Ok(maps) => {
                 cache::save(&maps);
