@@ -10,6 +10,7 @@ pub struct Map {
     pub tags: String,
     pub duration_ms: u64,
     pub created_at: Option<String>,
+    pub status: String,
 }
 
 impl Map {
@@ -55,6 +56,7 @@ pub struct ApiMap {
     pub tags: Option<String>,
     pub length: Option<u64>,
     pub created_at: Option<String>,
+    pub status: Option<String>,
 }
 
 impl From<ApiMap> for Map {
@@ -68,6 +70,7 @@ impl From<ApiMap> for Map {
             tags: a.tags.unwrap_or_default(),
             duration_ms: a.length.unwrap_or(0),
             created_at: a.created_at,
+            status: a.status.unwrap_or_default(),
         }
     }
 }

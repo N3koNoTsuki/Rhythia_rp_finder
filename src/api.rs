@@ -27,8 +27,7 @@ impl RhythiaClient {
         let url = format!("{}{}", BASE_URL, API_BEATMAPS);
         let body = json!({
             "session": "",
-            "page": page,
-            "status": "RANKED"
+            "page": page
         });
         let mut attempt = 0u32;
 
@@ -94,7 +93,7 @@ impl RhythiaClient {
             );
             on_progress(maps.len() as u64, total);
             if p < total_pages {
-                std::thread::sleep(Duration::from_millis(150));
+                std::thread::sleep(Duration::from_millis(50));
             }
         }
 

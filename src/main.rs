@@ -54,6 +54,7 @@ enum Focus {
     MinRp,
     MaxRp,
     Sort,
+    Maps,
 }
 
 impl Focus {
@@ -61,14 +62,37 @@ impl Focus {
         match self {
             Focus::MinRp => Focus::MaxRp,
             Focus::MaxRp => Focus::Sort,
-            Focus::Sort => Focus::MinRp,
+            Focus::Sort => Focus::Maps,
+            Focus::Maps => Focus::MinRp,
         }
     }
     fn prev(self) -> Self {
         match self {
-            Focus::MinRp => Focus::Sort,
+            Focus::MinRp => Focus::Maps,
             Focus::MaxRp => Focus::MinRp,
             Focus::Sort => Focus::MaxRp,
+            Focus::Maps => Focus::Sort,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum MapFilter {
+    Ranked,
+    All,
+}
+
+impl MapFilter {
+    fn label(self) -> &'static str {
+        match self {
+            MapFilter::Ranked => "Ranked",
+            MapFilter::All => "Tous",
+        }
+    }
+    fn next(self) -> Self {
+        match self {
+            MapFilter::Ranked => MapFilter::All,
+            MapFilter::All => MapFilter::Ranked,
         }
     }
 }
@@ -95,6 +119,7 @@ struct App {
     min_rp: String,
     max_rp: String,
     sort: Sort,
+    map_filter: MapFilter,
     focus: Focus,
 
     list_state: ListState,
@@ -113,6 +138,7 @@ impl App {
             min_rp: String::new(),
             max_rp: String::new(),
             sort: Sort::Plays,
+            map_filter: MapFilter::Ranked,
             focus: Focus::MinRp,
             list_state: ListState::default(),
             selected: 0,
@@ -123,13 +149,16 @@ impl App {
         let low = self.min_rp.parse::<u64>().unwrap_or(0);
         let high = self.max_rp.parse::<u64>().unwrap_or(u64::MAX);
 
+        let ranked_only = self.map_filter == MapFilter::Ranked;
         let mut indices: Vec<usize> = self
             .maps
             .iter()
             .enumerate()
             .filter(|(_, m)| {
                 let rp = m.max_rp();
-                rp >= low && rp <= high
+                let rp_ok = rp >= low && rp <= high;
+                let status_ok = !ranked_only || m.status == "RANKED";
+                rp_ok && status_ok
             })
             .map(|(i, _)| i)
             .collect();
@@ -167,7 +196,7 @@ impl App {
                 self.max_rp.push(c);
                 self.refilter();
             }
-            Focus::Sort => {}
+            Focus::Sort | Focus::Maps => {}
         }
     }
 
@@ -181,7 +210,7 @@ impl App {
                 self.max_rp.pop();
                 self.refilter();
             }
-            Focus::Sort => {}
+            Focus::Sort | Focus::Maps => {}
         }
     }
 
@@ -287,9 +316,10 @@ fn render_filters(f: &mut Frame, app: &mut App, area: Rect) {
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(33),
-            Constraint::Percentage(33),
-            Constraint::Percentage(34),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
         ])
         .split(area);
 
@@ -321,25 +351,31 @@ fn render_filters(f: &mut Frame, app: &mut App, area: Rect) {
         f.render_widget(para, cols[i]);
     }
 
-    let sort_focused = app.focus == Focus::Sort;
-    let sort_block = Block::default()
-        .title(" Tri ")
-        .borders(Borders::ALL)
-        .border_style(if sort_focused {
-            Style::default().fg(Color::Yellow)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        });
-    let sort_para = Paragraph::new(format!("◀ {} ▶", app.sort.label()))
-        .block(sort_block)
-        .style(if sort_focused {
+    for (i, (label, value, focus)) in [
+        (" Tri ", format!("◀ {} ▶", app.sort.label()), Focus::Sort),
+        (" Maps ", format!("◀ {} ▶", app.map_filter.label()), Focus::Maps),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let focused = app.focus == *focus;
+        let block = Block::default()
+            .title(label.to_string())
+            .borders(Borders::ALL)
+            .border_style(if focused {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            });
+        let para = Paragraph::new(value.as_str()).block(block).style(if focused {
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::White)
         });
-    f.render_widget(sort_para, cols[2]);
+        f.render_widget(para, cols[2 + i]);
+    }
 }
 
 fn render_count(f: &mut Frame, app: &mut App, area: Rect) {
@@ -413,7 +449,7 @@ fn render_list(f: &mut Frame, app: &mut App, area: Rect) {
 
 fn render_help(f: &mut Frame, area: Rect) {
     let para = Paragraph::new(
-        " [Tab] champ suivant  [←/→] changer tri  [↑↓/jk] naviguer  [PgUp/Dn] ×10  [q] quitter",
+        " [Tab] champ  [←/→] changer valeur  [↑↓/jk] naviguer  [PgUp/Dn] ×10  [Enter] ouvrir lien  [q] quitter",
     )
     .style(Style::default().fg(Color::DarkGray));
     f.render_widget(para, area);
@@ -511,9 +547,23 @@ fn run<B: ratatui::backend::Backend>(
                         app.sort = app.sort.next();
                         app.refilter();
                     }
+                    KeyCode::Left | KeyCode::Right if app.focus == Focus::Maps => {
+                        app.map_filter = app.map_filter.next();
+                        app.refilter();
+                    }
                     KeyCode::Enter if app.focus == Focus::Sort => {
                         app.sort = app.sort.next();
                         app.refilter();
+                    }
+                    KeyCode::Enter if app.focus == Focus::Maps => {
+                        app.map_filter = app.map_filter.next();
+                        app.refilter();
+                    }
+                    KeyCode::Enter => {
+                        if let Some(&idx) = app.filtered.get(app.selected) {
+                            let url = app.maps[idx].url();
+                            let _ = open::that(url);
+                        }
                     }
                     KeyCode::Up | KeyCode::Char('k') => app.scroll_up(1),
                     KeyCode::Down | KeyCode::Char('j') => app.scroll_down(1),
