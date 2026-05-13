@@ -1,4 +1,5 @@
 mod api;
+mod cache;
 mod models;
 
 use std::io;
@@ -100,6 +101,7 @@ impl MapFilter {
 // ── Channel messages from fetch thread ────────────────────────────────────────
 
 enum Msg {
+    CacheLoaded(Vec<Map>),
     Progress(u64, u64),
     Done(Vec<Map>),
     Err(String),
@@ -107,11 +109,23 @@ enum Msg {
 
 // ── App state ─────────────────────────────────────────────────────────────────
 
+#[derive(PartialEq)]
+enum Phase {
+    Loading,  // no cache, waiting for first data
+    Live,     // has data, may be updating in background
+}
+
 struct App {
-    loading: bool,
+    phase: Phase,
+    // Initial loading (no cache)
     load_fetched: u64,
     load_total: u64,
     load_error: Option<String>,
+    // Background update progress
+    update_fetched: u64,
+    update_total: u64,
+    update_done: bool,
+    update_error: Option<String>,
 
     maps: Vec<Map>,
     filtered: Vec<usize>,
@@ -129,10 +143,14 @@ struct App {
 impl App {
     fn new() -> Self {
         App {
-            loading: true,
+            phase: Phase::Loading,
             load_fetched: 0,
             load_total: 0,
             load_error: None,
+            update_fetched: 0,
+            update_total: 0,
+            update_done: false,
+            update_error: None,
             maps: Vec::new(),
             filtered: Vec::new(),
             min_rp: String::new(),
@@ -232,7 +250,7 @@ impl App {
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
 fn render(f: &mut Frame, app: &mut App) {
-    if app.loading || app.load_error.is_some() {
+    if app.phase == Phase::Loading {
         render_loading(f, app);
     } else {
         render_main(f, app);
@@ -276,19 +294,24 @@ fn render_loading(f: &mut Frame, app: &mut App) {
     let filled = ((pct * bar_width as f64) as usize).min(bar_width);
     let empty = bar_width - filled;
 
-    let label = Paragraph::new("Chargement des maps ranked…")
+    let label = Paragraph::new("Chargement des maps…")
         .alignment(Alignment::Center)
         .style(Style::default().fg(Color::Yellow));
 
-    let bar = Paragraph::new(format!(
-        "[{}{}]  {}/{}",
-        "█".repeat(filled),
-        "░".repeat(empty),
-        app.load_fetched,
-        app.load_total,
-    ))
-    .alignment(Alignment::Center)
-    .style(Style::default().fg(Color::Green));
+    let bar_text = if app.load_total == 0 {
+        "Connexion…".to_string()
+    } else {
+        format!(
+            "[{}{}]  {}/{}",
+            "█".repeat(filled),
+            "░".repeat(empty),
+            app.load_fetched,
+            app.load_total,
+        )
+    };
+    let bar = Paragraph::new(bar_text)
+        .alignment(Alignment::Center)
+        .style(Style::default().fg(Color::Green));
 
     f.render_widget(label, chunks[1]);
     f.render_widget(bar, chunks[2]);
@@ -301,6 +324,7 @@ fn render_main(f: &mut Frame, app: &mut App) {
         .constraints([
             Constraint::Length(3),
             Constraint::Length(1),
+            Constraint::Length(1),
             Constraint::Fill(1),
             Constraint::Length(1),
         ])
@@ -308,8 +332,9 @@ fn render_main(f: &mut Frame, app: &mut App) {
 
     render_filters(f, app, chunks[0]);
     render_count(f, app, chunks[1]);
-    render_list(f, app, chunks[2]);
-    render_help(f, chunks[3]);
+    render_update_status(f, app, chunks[2]);
+    render_list(f, app, chunks[3]);
+    render_help(f, chunks[4]);
 }
 
 fn render_filters(f: &mut Frame, app: &mut App, area: Rect) {
@@ -376,6 +401,32 @@ fn render_filters(f: &mut Frame, app: &mut App, area: Rect) {
         });
         f.render_widget(para, cols[2 + i]);
     }
+}
+
+fn render_update_status(f: &mut Frame, app: &mut App, area: Rect) {
+    let text = if let Some(ref err) = app.update_error {
+        Paragraph::new(format!(" ✗ Erreur mise à jour : {}", err))
+            .style(Style::default().fg(Color::Red))
+    } else if app.update_done {
+        Paragraph::new("").style(Style::default())
+    } else if app.update_total == 0 {
+        Paragraph::new(" ⟳ Connexion pour mise à jour…")
+            .style(Style::default().fg(Color::DarkGray))
+    } else {
+        let pct = app.update_fetched as f64 / app.update_total as f64;
+        let bar_width = (area.width as usize).saturating_sub(30);
+        let filled = ((pct * bar_width as f64) as usize).min(bar_width);
+        let empty = bar_width - filled;
+        Paragraph::new(format!(
+            " ⟳ Mise à jour  [{}{}]  {}/{}",
+            "█".repeat(filled),
+            "░".repeat(empty),
+            app.update_fetched,
+            app.update_total,
+        ))
+        .style(Style::default().fg(Color::DarkGray))
+    };
+    f.render_widget(text, area);
 }
 
 fn render_count(f: &mut Frame, app: &mut App, area: Rect) {
@@ -480,6 +531,9 @@ fn main() -> Result<()> {
 
     let (tx, rx) = mpsc::channel::<Msg>();
     thread::spawn(move || {
+        if let Some(cached) = cache::load() {
+            let _ = tx.send(Msg::CacheLoaded(cached));
+        }
         let client = match RhythiaClient::new() {
             Ok(c) => c,
             Err(e) => {
@@ -491,6 +545,7 @@ fn main() -> Result<()> {
             let _ = tx.send(Msg::Progress(f, t));
         }) {
             Ok(maps) => {
+                cache::save(&maps);
                 let _ = tx.send(Msg::Done(maps));
             }
             Err(e) => {
@@ -517,18 +572,30 @@ fn run<B: ratatui::backend::Backend>(
     loop {
         while let Ok(msg) = rx.try_recv() {
             match msg {
+                Msg::CacheLoaded(maps) => {
+                    app.maps = maps;
+                    app.phase = Phase::Live;
+                    app.refilter();
+                }
                 Msg::Progress(f, t) => {
-                    app.load_fetched = f;
-                    app.load_total = t;
+                    if app.phase == Phase::Loading {
+                        app.load_fetched = f;
+                        app.load_total = t;
+                    }
+                    app.update_fetched = f;
+                    app.update_total = t;
                 }
                 Msg::Done(maps) => {
                     app.maps = maps;
-                    app.loading = false;
+                    app.phase = Phase::Live;
+                    app.update_done = true;
                     app.refilter();
                 }
                 Msg::Err(e) => {
-                    app.load_error = Some(e);
-                    app.loading = false;
+                    if app.phase == Phase::Loading {
+                        app.load_error = Some(e.clone());
+                    }
+                    app.update_error = Some(e);
                 }
             }
         }
@@ -540,7 +607,7 @@ fn run<B: ratatui::backend::Backend>(
                 match key.code {
                     KeyCode::Char('q') => break,
                     KeyCode::Esc => break,
-                    _ if app.loading => {}
+                    _ if app.phase == Phase::Loading => {}
                     KeyCode::Tab => app.focus = app.focus.next(),
                     KeyCode::BackTab => app.focus = app.focus.prev(),
                     KeyCode::Left | KeyCode::Right if app.focus == Focus::Sort => {

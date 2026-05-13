@@ -1,45 +1,26 @@
+use std::fs;
+use std::path::PathBuf;
+
 use crate::models::Map;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SortBy {
-    Plays,
-    Date,
+fn cache_path() -> PathBuf {
+    dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("rhythia-rp-finder")
+        .join("maps.json")
 }
 
-pub struct Cache {
-    maps: Vec<Map>,
+pub fn load() -> Option<Vec<Map>> {
+    let data = fs::read_to_string(cache_path()).ok()?;
+    serde_json::from_str(&data).ok()
 }
 
-impl Cache {
-    pub fn new(maps: Vec<Map>) -> Self {
-        Cache { maps }
+pub fn save(maps: &[Map]) {
+    let path = cache_path();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
     }
-
-    pub fn filter_by_rp(&self, low: u64, high: u64, sort: SortBy) -> Vec<&Map> {
-        let mut filtered: Vec<&Map> = self
-            .maps
-            .iter()
-            .filter(|m| {
-                let rp = m.max_rp();
-                rp >= low && rp <= high
-            })
-            .collect();
-
-        match sort {
-            SortBy::Plays => {
-                filtered.sort_by(|a, b| b.play_count.cmp(&a.play_count));
-            }
-            SortBy::Date => {
-                filtered.sort_by(|a, b| {
-                    b.created_at.cmp(&a.created_at)
-                });
-            }
-        }
-
-        filtered
-    }
-
-    pub fn total(&self) -> usize {
-        self.maps.len()
+    if let Ok(data) = serde_json::to_string(maps) {
+        let _ = fs::write(path, data);
     }
 }
