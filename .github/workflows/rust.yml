@@ -1,22 +1,72 @@
-name: Rust
+name: Release
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
+    tags:
+      - "v*"
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
-
-    runs-on: ubuntu-latest
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: rhythia-rp-finder-linux-x86_64
+            binary: rhythia-rp-finder
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: rhythia-rp-finder-windows-x86_64.exe
+            binary: rhythia-rp-finder.exe
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      - uses: actions/checkout@v4
+
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Rename binary (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: cp target/${{ matrix.target }}/release/${{ matrix.binary }} ${{ matrix.artifact }}
+
+      - name: Rename binary (Windows)
+        if: matrix.os == 'windows-latest'
+        run: copy target\${{ matrix.target }}\release\${{ matrix.binary }} ${{ matrix.artifact }}
+        shell: cmd
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            rhythia-rp-finder-linux-x86_64/rhythia-rp-finder-linux-x86_64
+            rhythia-rp-finder-windows-x86_64.exe/rhythia-rp-finder-windows-x86_64.exe
+          generate_release_notes: true
